@@ -17,9 +17,9 @@ impl NES {
     }
 
     pub fn run(&mut self) {
+        let mut n_cycles: u64 = CYCLES_PER_FRAME;
         loop {
-            self.cpu
-                .execute_instructions(&mut self.ram, CYCLES_PER_FRAME);
+            n_cycles = self.cpu.execute_instructions(&mut self.ram, n_cycles) % CYCLES_PER_FRAME;
             // TODO render
         }
     }
