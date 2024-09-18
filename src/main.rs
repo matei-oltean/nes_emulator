@@ -13,5 +13,4 @@ fn main() {
         std::process::exit(1);
     }
     let nes: NES = NES::new(&args[1]);
-    dbg!(nes);
 }

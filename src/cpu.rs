@@ -125,10 +125,6 @@ impl CPU {
                 let addr: u8 = self.read_next_byte(ram);
                 self.read(ram, (addr + self.y) as u16) as u16
             }
-            _ => {
-                eprintln!("Unknown addressing mode: {:?}", mode);
-                std::process::exit(1);
-            }
         }
     }
 
