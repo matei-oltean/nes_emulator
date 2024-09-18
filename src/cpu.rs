@@ -91,8 +91,7 @@ impl CPU {
             AddressingMode::Implied => 0,
             AddressingMode::Indirect => {
                 let addr: u16 = self.read_next_word_number(ram);
-                let indirect_addr: u16 = self.read_word_number(ram, addr);
-                indirect_addr
+                self.read_word_number(ram, addr)
             }
             AddressingMode::IndexedIndirect => {
                 let addr: u8 = self.read_next_byte(ram);

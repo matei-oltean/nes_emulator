@@ -12,5 +12,5 @@ fn main() {
         eprintln!("Usage: cargo run -- <rom_file>");
         std::process::exit(1);
     }
-    let nes: NES = NES::new(&args[1]);
+    let _nes: NES = NES::new(&args[1]);
 }
