@@ -1,0 +1,8 @@
+[package]
+name = "nes_emulator"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matei Oltean matei.oltean@gmail.com"]
+include = ["/src"]
+
+[dependencies]
