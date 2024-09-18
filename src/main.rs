@@ -1,8 +1,10 @@
 use std::env;
 
-use cpu::CPU;
+use nes::NES;
 
 mod cpu;
+mod nes;
+mod ram;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,6 +12,6 @@ fn main() {
         eprintln!("Usage: cargo run -- <rom_file>");
         std::process::exit(1);
     }
-    let cpu: CPU = CPU::from_file(&args[1]);
-    println!("{:?}", cpu);
+    let nes: NES = NES::new(&args[1]);
+    dbg!(nes);
 }
