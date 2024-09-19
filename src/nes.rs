@@ -10,9 +10,10 @@ const CYCLES_PER_FRAME: u64 = 29781;
 
 impl NES {
     pub fn new(rom_file: &str) -> NES {
+        let ram: RAM = RAM::from_file(rom_file);
         NES {
-            cpu: CPU::new(),
-            ram: RAM::from_file(rom_file),
+            cpu: CPU::from_ram(&ram),
+            ram,
         }
     }
 

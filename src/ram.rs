@@ -1,4 +1,7 @@
-use std::{fs::File, io::Read};
+use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+};
 
 // Memory map:
 // 0x0000 - 0x07FF: 2KB internal RAM
@@ -10,6 +13,10 @@ use std::{fs::File, io::Read};
 // 0x4000 - 0x4017: APU and I/O registers
 // 0x4018 - 0x401F: APU and I/O functionality that is normally disabled
 // 0x4020 - 0xFFFF: Cartridge space: PRG ROM, PRG RAM, and mapper registers
+
+const CPU_ROM_START_ADDRESS: usize = 0x8000;
+const PRG_PAGE_SIZE: usize = 0x4000;
+const CHR_PAGE_SIZE: usize = 0x2000;
 
 #[derive(Debug)]
 pub struct RAM {
@@ -24,7 +31,37 @@ impl RAM {
     pub fn from_file(file_path: &str) -> RAM {
         let mut ram: RAM = RAM::new();
         let mut file: File = File::open(file_path).unwrap();
-        file.read(&mut ram.ram).unwrap();
+        let mut header: [u8; 16] = [0; 16];
+        file.read_exact(&mut header).unwrap();
+        if header[..4] != [0x4E, 0x45, 0x53, 0x1A] {
+            panic!("Invalid NES file");
+        }
+        let prg_rom_size: usize;
+        let _chr_rom_size: usize;
+        let is_nes_2_0: bool = (header[7] & 0x0C) == 0x08;
+        let has_trainer: bool = (header[6] & 0b00000100) != 0;
+        if is_nes_2_0 {
+            prg_rom_size =
+                (((header[9] & 0b1111) as usize) << 8 | header[4] as usize) * PRG_PAGE_SIZE;
+            _chr_rom_size =
+                (((header[9] & 0b11110000) as usize) << 4 | header[5] as usize) * CHR_PAGE_SIZE;
+        } else {
+            prg_rom_size = header[4] as usize * PRG_PAGE_SIZE;
+            _chr_rom_size = header[5] as usize * CHR_PAGE_SIZE;
+        }
+        // always skip trainer
+        if has_trainer {
+            file.seek(SeekFrom::Current(512)).unwrap();
+        }
+        // TODO handle more than 2 pages of PRG ROM
+        file.read_exact(&mut ram.ram[CPU_ROM_START_ADDRESS..CPU_ROM_START_ADDRESS + prg_rom_size])
+            .unwrap();
+        if prg_rom_size == PRG_PAGE_SIZE {
+            ram.ram.copy_within(
+                CPU_ROM_START_ADDRESS..CPU_ROM_START_ADDRESS + PRG_PAGE_SIZE,
+                0xC000,
+            );
+        }
         ram
     }
 

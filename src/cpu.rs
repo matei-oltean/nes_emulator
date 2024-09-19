@@ -39,6 +39,21 @@ impl CPU {
         }
     }
 
+    pub fn from_ram(ram: &RAM) -> CPU {
+        println!(
+            "pc at {}",
+            u16::from_le_bytes([ram.read(0xFFFC), ram.read(0xFFFD)])
+        );
+        CPU {
+            a: 0,
+            x: 0,
+            y: 0,
+            pc: u16::from_le_bytes([ram.read(0xFFFC), ram.read(0xFFFD)]),
+            s: 0xFD,
+            p: 0x24,
+        }
+    }
+
     fn read(&self, ram: &RAM, addr: u16) -> u8 {
         ram.read(addr)
     }
