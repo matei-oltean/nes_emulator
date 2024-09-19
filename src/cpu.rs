@@ -1,4 +1,4 @@
-use crate::ram::RAM;
+use crate::{bitfield::Bitfield, ram::RAM};
 
 #[derive(Debug)]
 enum AddressingMode {
@@ -17,28 +17,26 @@ enum AddressingMode {
     ZeroPageY,
 }
 
+enum StatusFlag {
+    Carry = 0,
+    Zero = 1,
+    InterruptDisable = 2,
+    DecimalMode = 3,
+    Overflow = 6,
+    Negative = 7,
+}
+
 #[derive(Debug)]
 pub struct CPU {
-    a: u8,
+    a: u8, // Accumulator
     x: u8,
     y: u8,
-    pc: u16,
-    s: u8,
-    p: u8,
+    pc: u16,     // Program Counter
+    s: u8,       // Stack Pointer
+    p: Bitfield, // Status register
 }
 
 impl CPU {
-    pub fn new() -> CPU {
-        CPU {
-            a: 0, // Accumulator
-            x: 0,
-            y: 0,
-            pc: 0, // Program Counter
-            s: 0,  // Stack Pointer
-            p: 0,  // Status register
-        }
-    }
-
     pub fn from_ram(ram: &RAM) -> CPU {
         println!(
             "pc at {}",
@@ -49,8 +47,8 @@ impl CPU {
             x: 0,
             y: 0,
             pc: u16::from_le_bytes([ram.read(0xFFFC), ram.read(0xFFFD)]),
-            s: 0xFD,
-            p: 0x24,
+            s: 0,
+            p: Bitfield::new(0),
         }
     }
 
@@ -68,10 +66,6 @@ impl CPU {
         ram.write(addr, data);
     }
 
-    fn get_cary(&self) -> u8 {
-        self.p & 0b0000_0001
-    }
-
     fn read_word_number(&mut self, ram: &RAM, addr: u16) -> u16 {
         u16::from_le_bytes([self.read(ram, addr), self.read(ram, addr + 1)])
     }
@@ -82,6 +76,35 @@ impl CPU {
         res
     }
 
+    fn lda(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let value: u8 = self.get_value(&ram, mode) as u8;
+        println!("LDA #${:X}", value);
+        if value == 0 {
+            self.p.set_bit(StatusFlag::Zero as u8, true);
+        }
+        if value & (1 << 7) != 0 {
+            self.p.set_bit(StatusFlag::Negative as u8, true);
+        }
+        self.a = value;
+    }
+
+    fn ldx(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let value: u8 = self.get_value(&ram, mode) as u8;
+        println!("LDX #${:X}", value);
+        if value == 0 {
+            self.p.set_bit(StatusFlag::Zero as u8, true);
+        }
+        if value & (1 << 7) != 0 {
+            self.p.set_bit(StatusFlag::Negative as u8, true);
+        }
+        self.x = value;
+    }
+
+    fn txs(&mut self) {
+        println!("TXS");
+        self.s = self.x;
+    }
+
     fn get_value(&mut self, ram: &RAM, mode: AddressingMode) -> u16 {
         match mode {
             AddressingMode::Accumulator => self.a as u16,
@@ -90,13 +113,15 @@ impl CPU {
                 self.read(ram, addr) as u16
             }
             AddressingMode::AbsoluteX => {
-                let addr: u16 =
-                    self.read_next_word_number(ram) + self.x as u16 + self.get_cary() as u16;
+                let addr: u16 = self.read_next_word_number(ram)
+                    + self.x as u16
+                    + self.p.get_bit(StatusFlag::Carry as u8) as u16;
                 self.read(ram, addr) as u16
             }
             AddressingMode::AbsoluteY => {
-                let addr: u16 =
-                    self.read_next_word_number(ram) + self.y as u16 + self.get_cary() as u16;
+                let addr: u16 = self.read_next_word_number(ram)
+                    + self.y as u16
+                    + self.p.get_bit(StatusFlag::Carry as u8) as u16;
                 self.read(ram, addr) as u16
             }
             AddressingMode::Immediate => {
@@ -148,6 +173,28 @@ impl CPU {
             0x00 => {
                 println!("BRK");
                 std::process::exit(1);
+            }
+            0x78 => {
+                println!("SEI");
+                self.p.set_bit(StatusFlag::InterruptDisable as u8, true);
+                2
+            }
+            0x9A => {
+                self.txs();
+                2
+            }
+            0xA2 => {
+                self.ldx(ram, AddressingMode::Immediate);
+                2
+            }
+            0xA9 => {
+                self.lda(ram, AddressingMode::Immediate);
+                2
+            }
+            0xD8 => {
+                println!("CLD");
+                self.p.set_bit(StatusFlag::DecimalMode as u8, false);
+                2
             }
             _ => {
                 eprintln!("Unknown opcode: {:#X}", opcode);

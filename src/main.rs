@@ -2,6 +2,7 @@ use std::env;
 
 use nes::NES;
 
+mod bitfield;
 mod cpu;
 mod nes;
 mod ram;
@@ -12,5 +13,6 @@ fn main() {
         eprintln!("Usage: cargo run -- <rom_file>");
         std::process::exit(1);
     }
-    let _nes: NES = NES::new(&args[1]);
+    let mut nes: NES = NES::new(&args[1]);
+    nes.run();
 }
