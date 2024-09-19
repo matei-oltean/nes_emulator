@@ -17,6 +17,12 @@ enum AddressingMode {
     ZeroPageY,
 }
 
+enum Register {
+    A,
+    X,
+    Y,
+}
+
 enum StatusFlag {
     Carry = 0,
     Zero = 1,
@@ -76,6 +82,46 @@ impl CPU {
         res
     }
 
+    fn is_crossing_page_boundary(addr1: u16, addr2: u16) -> bool {
+        addr1 & 0xFF00 != addr2 & 0xFF00
+    }
+
+    fn bne(&mut self, ram: &RAM) -> u64 {
+        let mut cycles: u64 = 2;
+        let new_location: u16 = self.get_value(ram, AddressingMode::Relative);
+        if !self.p.get_bit(StatusFlag::Zero as u8) {
+            let page_boundary_crossed: bool = CPU::is_crossing_page_boundary(self.pc, new_location);
+            self.pc = new_location;
+            cycles += if page_boundary_crossed { 2 } else { 1 };
+        }
+        cycles
+    }
+
+    fn dex(&mut self) {
+        println!("DEX");
+        self.decrement_register(Register::X);
+    }
+
+    fn dey(&mut self) {
+        println!("DEY");
+        self.decrement_register(Register::Y);
+    }
+
+    fn decrement_register(&mut self, register: Register) {
+        let reg: &mut u8 = match register {
+            Register::A => &mut self.a,
+            Register::X => &mut self.x,
+            Register::Y => &mut self.y,
+        };
+        *reg = reg.wrapping_sub(1);
+        if *reg == 0 {
+            self.p.set_bit(StatusFlag::Zero as u8, true);
+        }
+        if *reg & (1 << 7) != 0 {
+            self.p.set_bit(StatusFlag::Negative as u8, true);
+        }
+    }
+
     fn lda(&mut self, ram: &mut RAM, mode: AddressingMode) {
         let value: u8 = self.get_value(&ram, mode) as u8;
         println!("LDA #${:X}", value);
@@ -89,15 +135,46 @@ impl CPU {
     }
 
     fn ldx(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let loaded_value = self.load_into_register(ram, mode, Register::X);
+        println!("LDX #${:X}", loaded_value);
+    }
+
+    fn ldy(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let loaded_value = self.load_into_register(ram, mode, Register::Y);
+        println!("LDY #${:X}", loaded_value);
+    }
+
+    fn load_into_register(
+        &mut self,
+        ram: &mut RAM,
+        mode: AddressingMode,
+        register: Register,
+    ) -> u8 {
         let value: u8 = self.get_value(&ram, mode) as u8;
-        println!("LDX #${:X}", value);
         if value == 0 {
             self.p.set_bit(StatusFlag::Zero as u8, true);
         }
         if value & (1 << 7) != 0 {
             self.p.set_bit(StatusFlag::Negative as u8, true);
         }
-        self.x = value;
+        match register {
+            Register::A => self.a = value,
+            Register::X => self.x = value,
+            Register::Y => self.y = value,
+        }
+        value
+    }
+
+    fn sta(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let addr: u16 = self.get_value(&ram, mode);
+        println!("STA ${:X}", addr);
+        self.write(ram, addr, self.a);
+    }
+
+    fn stx(&mut self, ram: &mut RAM, mode: AddressingMode) {
+        let addr: u16 = self.get_value(&ram, mode);
+        println!("STX ${:X}", addr);
+        self.write(ram, addr, self.x);
     }
 
     fn txs(&mut self) {
@@ -143,6 +220,7 @@ impl CPU {
                 self.read(ram, indirect_addr + self.y as u16) as u16
             }
             AddressingMode::Relative => {
+                // TODO: fix
                 let offset: i8 = self.read_next_byte(ram) as i8;
                 match i16::try_from(self.pc) {
                     Ok(pc) => (pc + offset as i16) as u16,
@@ -179,18 +257,79 @@ impl CPU {
                 self.p.set_bit(StatusFlag::InterruptDisable as u8, true);
                 2
             }
+            0x81 => {
+                self.sta(ram, AddressingMode::IndexedIndirect);
+                6
+            }
+            0x85 => {
+                self.sta(ram, AddressingMode::ZeroPage);
+                3
+            }
+            0x86 => {
+                self.stx(ram, AddressingMode::ZeroPage);
+                3
+            }
+            0x88 => {
+                self.dey();
+                2
+            }
+            0x8D => {
+                self.sta(ram, AddressingMode::Absolute);
+                4
+            }
+            0x8E => {
+                self.stx(ram, AddressingMode::Absolute);
+                4
+            }
+            0x91 => {
+                self.sta(ram, AddressingMode::IndirectIndexed);
+                6
+            }
+            0x95 => {
+                self.sta(ram, AddressingMode::ZeroPageX);
+                4
+            }
+            0x96 => {
+                self.stx(ram, AddressingMode::ZeroPageY);
+                4
+            }
+            0x99 => {
+                self.sta(ram, AddressingMode::AbsoluteY);
+                5
+            }
             0x9A => {
                 self.txs();
+                2
+            }
+            0x9D => {
+                self.sta(ram, AddressingMode::AbsoluteX);
+                5
+            }
+            0xA0 => {
+                self.ldy(ram, AddressingMode::Immediate);
                 2
             }
             0xA2 => {
                 self.ldx(ram, AddressingMode::Immediate);
                 2
             }
+            0xA4 => {
+                self.ldy(ram, AddressingMode::ZeroPage);
+                3
+            }
             0xA9 => {
                 self.lda(ram, AddressingMode::Immediate);
                 2
             }
+            0xAC => {
+                self.ldy(ram, AddressingMode::Absolute);
+                4
+            }
+            0xB4 => {
+                self.ldy(ram, AddressingMode::ZeroPageX);
+                4
+            }
+            0xD0 => self.bne(ram),
             0xD8 => {
                 println!("CLD");
                 self.p.set_bit(StatusFlag::DecimalMode as u8, false);
