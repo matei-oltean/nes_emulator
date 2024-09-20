@@ -45,7 +45,7 @@ pub struct CPU {
 impl CPU {
     pub fn from_ram(ram: &RAM) -> CPU {
         println!(
-            "pc at {}",
+            "pc at {:X}",
             u16::from_le_bytes([ram.read(0xFFFC), ram.read(0xFFFD)])
         );
         CPU {
@@ -147,14 +147,16 @@ impl CPU {
         cycles
     }
 
-    fn dex(&mut self) {
+    fn dex(&mut self) -> u64 {
         println!("DEX");
         self.decrement_register(Register::X);
+        2
     }
 
-    fn dey(&mut self) {
+    fn dey(&mut self) -> u64 {
         println!("DEY");
         self.decrement_register(Register::Y);
+        2
     }
 
     fn decrement_register(&mut self, register: Register) {
@@ -224,9 +226,10 @@ impl CPU {
         self.write(ram, addr, self.x);
     }
 
-    fn txs(&mut self) {
+    fn txs(&mut self) -> u64 {
         println!("TXS");
         self.s = self.x;
+        2
     }
 
     fn get_value(&mut self, ram: &RAM, mode: &AddressingMode) -> u16 {
@@ -333,10 +336,7 @@ impl CPU {
                 self.stx(ram, &AddressingMode::ZeroPage);
                 3
             }
-            0x88 => {
-                self.dey();
-                2
-            }
+            0x88 => self.dey(),
             0x8D => {
                 self.sta(ram, &AddressingMode::Absolute);
                 4
@@ -361,10 +361,7 @@ impl CPU {
                 self.sta(ram, &AddressingMode::AbsoluteY);
                 5
             }
-            0x9A => {
-                self.txs();
-                2
-            }
+            0x9A => self.txs(),
             0x9D => {
                 self.sta(ram, &AddressingMode::AbsoluteX);
                 5
@@ -373,12 +370,20 @@ impl CPU {
                 self.ldy(ram, &AddressingMode::Immediate);
                 2
             }
+            0xA1 => {
+                self.lda(ram, &AddressingMode::IndexedIndirect);
+                6
+            }
             0xA2 => {
                 self.ldx(ram, &AddressingMode::Immediate);
                 2
             }
             0xA4 => {
                 self.ldy(ram, &AddressingMode::ZeroPage);
+                3
+            }
+            0xA5 => {
+                self.lda(ram, &AddressingMode::ZeroPage);
                 3
             }
             0xA9 => {
@@ -389,14 +394,15 @@ impl CPU {
                 self.ldy(ram, &AddressingMode::Absolute);
                 4
             }
+            0xAD => {
+                self.lda(ram, &AddressingMode::Absolute);
+                4
+            }
             0xB4 => {
                 self.ldy(ram, &AddressingMode::ZeroPageX);
                 4
             }
-            0xCA => {
-                self.dex();
-                2
-            }
+            0xCA => self.dex(),
             0xD0 => self.bne(ram),
             0xD8 => {
                 println!("CLD");
