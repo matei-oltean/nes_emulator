@@ -169,6 +169,12 @@ impl CPU {
             .set_bit(StatusFlag::Negative as u8, *reg & (1 << 7) != 0);
     }
 
+    fn jmp(&mut self, ram: &RAM, mode: &AddressingMode) {
+        let addr: u16 = self.get_value(ram, mode);
+        Self::print_instruction("JMP", mode, addr);
+        self.pc = addr;
+    }
+
     fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) {
         let value: u8 = self.get_value(&ram, mode) as u8;
         Self::print_instruction("LDA", mode, value as u16);
@@ -290,7 +296,7 @@ impl CPU {
         match opcode {
             0x00 => {
                 println!("BRK");
-                std::process::exit(1);
+                std::process::exit(0);
             }
             0x10 => self.bpl(ram),
             0x24 => {
@@ -301,7 +307,15 @@ impl CPU {
                 self.bit(ram, &AddressingMode::Absolute);
                 4
             }
+            0x4C => {
+                self.jmp(ram, &AddressingMode::Absolute);
+                3
+            }
             0x30 => self.bmi(ram),
+            0x6C => {
+                self.jmp(ram, &AddressingMode::Indirect);
+                5
+            }
             0x78 => {
                 println!("SEI");
                 self.p.set_bit(StatusFlag::InterruptDisable as u8, true);
