@@ -179,6 +179,25 @@ impl CPU {
         self.pc = addr;
     }
 
+    fn inc(&mut self, ram: &mut RAM, mode: &AddressingMode) {
+        let addr: u16 = self.get_value(ram, mode).0;
+        Self::print_instruction("INC", mode, addr);
+        let value: u8 = self.read(ram, addr).wrapping_add(1);
+        self.write(ram, addr, value);
+        self.p.set_bit(StatusFlag::Zero as u8, value == 0);
+        self.p
+            .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
+    }
+
+    fn increment_register(name: &str, p: &mut Bitfield, reg: &mut u8) -> u64 {
+        println!("{}", name);
+        *reg = reg.wrapping_add(1);
+        p.set_bit(StatusFlag::Zero as u8, *reg == 0);
+        p
+            .set_bit(StatusFlag::Negative as u8, *reg & (1 << 7) != 0);
+        2
+    }
+
     fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) -> u64 {
         let (value, cycles) = self.load_into_register(ram, mode, Register::A);
         Self::print_instruction("LDA", mode, value as u16);
@@ -441,6 +460,7 @@ impl CPU {
                 self.dec(ram, &AddressingMode::ZeroPage);
                 5
             }
+            0xC8 => Self::increment_register("INY", &mut self.p, &mut self.y),
             0xCA => Self::decrement_register("DEX", &mut self.p, &mut self.x),
             0xCE => {
                 self.dec(ram, &AddressingMode::Absolute);
@@ -460,11 +480,28 @@ impl CPU {
                 self.dec(ram, &AddressingMode::AbsoluteX);
                 7
             }
+            0xE6 => {
+                self.inc(ram, &AddressingMode::ZeroPage);
+                5
+            }
+            0xE8 => Self::increment_register("INX", &mut self.p, &mut self.x),
             0xEA => {
                 println!("NOP");
                 2
             }
+            0xEE => {
+                self.inc(ram, &AddressingMode::Absolute);
+                6
+            }
             0xF0 => self.beq(ram),
+            0xF6 => {
+                self.inc(ram, &AddressingMode::ZeroPageX);
+                6
+            }
+            0xFE => {
+                self.inc(ram, &AddressingMode::AbsoluteX);
+                7
+            }
             _ => {
                 eprintln!("Unknown opcode: {:#X}", opcode);
                 std::process::exit(1);
