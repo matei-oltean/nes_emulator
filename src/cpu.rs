@@ -154,28 +154,23 @@ impl CPU {
         cycles
     }
 
-    fn dex(&mut self) -> u64 {
-        println!("DEX");
-        self.decrement_register(Register::X);
-        2
-    }
-
-    fn dey(&mut self) -> u64 {
-        println!("DEY");
-        self.decrement_register(Register::Y);
-        2
-    }
-
-    fn decrement_register(&mut self, register: Register) {
-        let reg: &mut u8 = match register {
-            Register::A => &mut self.a,
-            Register::X => &mut self.x,
-            Register::Y => &mut self.y,
-        };
-        *reg = reg.wrapping_sub(1);
-        self.p.set_bit(StatusFlag::Zero as u8, *reg == 0);
+    fn dec(&mut self, ram: &mut RAM, mode: &AddressingMode) {
+        let addr: u16 = self.get_value(ram, mode).0;
+        Self::print_instruction("DEC", mode, addr);
+        let value: u8 = self.read(ram, addr).wrapping_sub(1);
+        self.write(ram, addr, value);
+        self.p.set_bit(StatusFlag::Zero as u8, value == 0);
         self.p
+            .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
+    }
+
+    fn decrement_register(name: &str, p: &mut Bitfield, reg: &mut u8) -> u64 {
+        println!("{}", name);
+        *reg = reg.wrapping_sub(1);
+        p.set_bit(StatusFlag::Zero as u8, *reg == 0);
+        p
             .set_bit(StatusFlag::Negative as u8, *reg & (1 << 7) != 0);
+        2
     }
 
     fn jmp(&mut self, ram: &RAM, mode: &AddressingMode) {
@@ -379,7 +374,7 @@ impl CPU {
                 self.stx(ram, &AddressingMode::ZeroPage);
                 3
             }
-            0x88 => self.dey(),
+            0x88 => Self::decrement_register("DEY", &mut self.p, &mut self.y),
             0x8A => Self::transfer_accumulator_to("TXA", &mut self.p, self.a, &mut self.x),
             0x8C => {
                 self.sty(ram, &AddressingMode::Absolute);
@@ -442,12 +437,28 @@ impl CPU {
             0xBD => self.lda(ram, &AddressingMode::AbsoluteX),
             0xBE => self.ldx(ram, &AddressingMode::AbsoluteY),
             0xB6 => self.ldx(ram, &AddressingMode::ZeroPageY),
-            0xCA => self.dex(),
+            0xC6 => {
+                self.dec(ram, &AddressingMode::ZeroPage);
+                5
+            }
+            0xCA => Self::decrement_register("DEX", &mut self.p, &mut self.x),
+            0xCE => {
+                self.dec(ram, &AddressingMode::Absolute);
+                6
+            }
             0xD0 => self.bne(ram),
+            0xD6 => {
+                self.dec(ram, &AddressingMode::ZeroPageX);
+                6
+            }
             0xD8 => {
                 println!("CLD");
                 self.p.set_bit(StatusFlag::DecimalMode as u8, false);
                 2
+            }
+            0xDE => {
+                self.dec(ram, &AddressingMode::AbsoluteX);
+                7
             }
             0xEA => {
                 println!("NOP");
