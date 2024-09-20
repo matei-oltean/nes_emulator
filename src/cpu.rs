@@ -178,7 +178,7 @@ impl CPU {
     }
 
     fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let value: u8 = self.get_value(&ram, mode) as u8;
+        let value: u8 = self.get_value(ram, mode) as u8;
         Self::print_instruction("LDA", mode, value as u16);
         self.p.set_bit(StatusFlag::Zero as u8, value == 0);
         self.p
@@ -202,7 +202,7 @@ impl CPU {
         mode: &AddressingMode,
         register: Register,
     ) -> u8 {
-        let value: u8 = self.get_value(&ram, mode) as u8;
+        let value: u8 = self.get_value(ram, mode) as u8;
         self.p.set_bit(StatusFlag::Zero as u8, value == 0);
         self.p
             .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
@@ -215,15 +215,21 @@ impl CPU {
     }
 
     fn sta(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(&ram, mode);
+        let addr: u16 = self.get_value(ram, mode);
         Self::print_instruction("STA", mode, addr);
         self.write(ram, addr, self.a);
     }
 
     fn stx(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(&ram, mode);
+        let addr: u16 = self.get_value(ram, mode);
         Self::print_instruction("STX", mode, addr);
         self.write(ram, addr, self.x);
+    }
+
+    fn sty(&mut self, ram: &mut RAM, mode: &AddressingMode) {
+        let addr: u16 = self.get_value(ram, mode);
+        Self::print_instruction("STY", mode, addr);
+        self.write(ram, addr, self.y);
     }
 
     fn txs(&mut self) -> u64 {
@@ -271,13 +277,8 @@ impl CPU {
             }
             AddressingMode::Relative => {
                 let offset: i8 = self.read_next_byte(ram) as i8;
-                match i32::try_from(self.pc) {
-                    Ok(pc) => (pc + offset as i32) as u16,
-                    Err(_) => {
-                        eprintln!("Program counter conversion failed");
-                        std::process::exit(1);
-                    }
-                }
+                let pc: i32 = self.pc as i32;
+                (pc + offset as i32) as u16
             }
             AddressingMode::ZeroPage => {
                 let addr: u8 = self.read_next_byte(ram);
@@ -328,6 +329,10 @@ impl CPU {
                 self.sta(ram, &AddressingMode::IndexedIndirect);
                 6
             }
+            0x84 => {
+                self.sty(ram, &AddressingMode::ZeroPage);
+                3
+            }
             0x85 => {
                 self.sta(ram, &AddressingMode::ZeroPage);
                 3
@@ -337,12 +342,20 @@ impl CPU {
                 3
             }
             0x88 => self.dey(),
+            0x8C => {
+                self.sty(ram, &AddressingMode::Absolute);
+                4
+            }
             0x8D => {
                 self.sta(ram, &AddressingMode::Absolute);
                 4
             }
             0x8E => {
                 self.stx(ram, &AddressingMode::Absolute);
+                4
+            }
+            0x94 => {
+                self.sty(ram, &AddressingMode::ZeroPageX);
                 4
             }
             0x91 => {
@@ -386,6 +399,10 @@ impl CPU {
                 self.lda(ram, &AddressingMode::ZeroPage);
                 3
             }
+            0xA6 => {
+                self.ldx(ram, &AddressingMode::ZeroPage);
+                3
+            }
             0xA9 => {
                 self.lda(ram, &AddressingMode::Immediate);
                 2
@@ -398,8 +415,20 @@ impl CPU {
                 self.lda(ram, &AddressingMode::Absolute);
                 4
             }
+            0xAE => {
+                self.ldx(ram, &AddressingMode::Absolute);
+                4
+            }
             0xB4 => {
                 self.ldy(ram, &AddressingMode::ZeroPageX);
+                4
+            }
+            0xB5 => {
+                self.lda(ram, &AddressingMode::ZeroPageX);
+                4
+            }
+            0xB6 => {
+                self.ldx(ram, &AddressingMode::ZeroPageY);
                 4
             }
             0xCA => self.dex(),
