@@ -69,8 +69,9 @@ impl CPU {
             AddressingMode::Indirect => println!("{} (${:02X})", op_name, value),
             AddressingMode::IndexedIndirect => println!("{} (${:02X},X)", op_name, value),
             AddressingMode::IndirectIndexed => println!("{} (${:02X}),Y", op_name, value),
-            AddressingMode::Relative => println!("{} ${:02X}", op_name, value),
-            AddressingMode::ZeroPage => println!("{} ${:02X}", op_name, value),
+            AddressingMode::Relative | AddressingMode::ZeroPage => {
+                println!("{} ${:02X}", op_name, value)
+            }
             AddressingMode::ZeroPageX => println!("{} ${:02X},X", op_name, value),
             AddressingMode::ZeroPageY => println!("{} ${:02X},Y", op_name, value),
         };
@@ -104,10 +105,41 @@ impl CPU {
         addr1 & 0xFF00 != addr2 & 0xFF00
     }
 
+    fn beq(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, self.p.get_bit(StatusFlag::Zero as u8), "BEQ")
+    }
+
+    fn bit(&mut self, ram: &RAM, mode: &AddressingMode) {
+        let value: u8 = self.get_value(ram, mode) as u8;
+        let result: u8 = self.a & value;
+        self.p.set_bit(StatusFlag::Zero as u8, result == 0);
+        self.p
+            .set_bit(StatusFlag::Overflow as u8, value & (1 << 6) != 0);
+        self.p
+            .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
+    }
+
+    fn bmi(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, self.p.get_bit(StatusFlag::Negative as u8), "BMI")
+    }
+
     fn bne(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, !self.p.get_bit(StatusFlag::Zero as u8), "BNE")
+    }
+
+    fn bpl(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, !self.p.get_bit(StatusFlag::Negative as u8), "BPL")
+    }
+
+    fn branch_if_comparison(&mut self, ram: &RAM, condition: bool, op_name: &str) -> u64 {
         let mut cycles: u64 = 2;
         let new_location: u16 = self.get_value(ram, &AddressingMode::Relative);
-        if !self.p.get_bit(StatusFlag::Zero as u8) {
+        println!(
+            "{} ${:02X}",
+            op_name,
+            (new_location as i32 - self.pc as i32) as u8
+        );
+        if condition {
             let page_boundary_crossed: bool = CPU::is_crossing_page_boundary(self.pc, new_location);
             self.pc = new_location;
             cycles += if page_boundary_crossed { 2 } else { 1 };
@@ -133,14 +165,16 @@ impl CPU {
         };
         *reg = reg.wrapping_sub(1);
         self.p.set_bit(StatusFlag::Zero as u8, *reg == 0);
-        self.p.set_bit(StatusFlag::Negative as u8, *reg & (1 << 7) != 0);
+        self.p
+            .set_bit(StatusFlag::Negative as u8, *reg & (1 << 7) != 0);
     }
 
     fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) {
         let value: u8 = self.get_value(&ram, mode) as u8;
         Self::print_instruction("LDA", mode, value as u16);
         self.p.set_bit(StatusFlag::Zero as u8, value == 0);
-        self.p.set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
+        self.p
+            .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
         self.a = value;
     }
 
@@ -258,6 +292,16 @@ impl CPU {
                 println!("BRK");
                 std::process::exit(1);
             }
+            0x10 => self.bpl(ram),
+            0x24 => {
+                self.bit(ram, &AddressingMode::ZeroPage);
+                3
+            }
+            0x2C => {
+                self.bit(ram, &AddressingMode::Absolute);
+                4
+            }
+            0x30 => self.bmi(ram),
             0x78 => {
                 println!("SEI");
                 self.p.set_bit(StatusFlag::InterruptDisable as u8, true);
@@ -345,6 +389,7 @@ impl CPU {
                 self.p.set_bit(StatusFlag::DecimalMode as u8, false);
                 2
             }
+            0xF0 => self.beq(ram),
             _ => {
                 eprintln!("Unknown opcode: {:#X}", opcode);
                 std::process::exit(1);
