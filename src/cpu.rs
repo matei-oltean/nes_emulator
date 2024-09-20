@@ -394,7 +394,7 @@ impl CPU {
                 3
             }
             0x88 => Self::decrement_register("DEY", &mut self.p, &mut self.y),
-            0x8A => Self::transfer_accumulator_to("TXA", &mut self.p, self.a, &mut self.x),
+            0x8A => Self::transfer_accumulator_to("TXA", &mut self.p, self.x, &mut self.a),
             0x8C => {
                 self.sty(ram, &AddressingMode::Absolute);
                 4
@@ -424,12 +424,12 @@ impl CPU {
                 self.stx(ram, &AddressingMode::ZeroPageY);
                 4
             }
-            0x98 => Self::transfer_accumulator_to("TYA", &mut self.p, self.a, &mut self.y),
+            0x98 => Self::transfer_accumulator_to("TYA", &mut self.p, self.y, &mut self.a),
             0x99 => {
                 self.sta(ram, &AddressingMode::AbsoluteY);
                 5
             }
-            0x9A => Self::transfer_accumulator_to("TXS", &mut self.p, self.a, &mut self.s),
+            0x9A => Self::transfer_accumulator_to("TXS", &mut self.p, self.x, &mut self.s),
             0x9D => {
                 self.sta(ram, &AddressingMode::AbsoluteX);
                 5
@@ -451,7 +451,7 @@ impl CPU {
             0xB4 => self.ldy(ram, &AddressingMode::ZeroPageX),
             0xB5 => self.lda(ram, &AddressingMode::ZeroPageX),
             0xB9 => self.lda(ram, &AddressingMode::AbsoluteY),
-            0xBA => Self::transfer_accumulator_to("TSX", &mut self.p, self.a, &mut self.x),
+            0xBA => Self::transfer_accumulator_to("TSX", &mut self.p, self.s, &mut self.x),
             0xBC => self.ldy(ram, &AddressingMode::AbsoluteX),
             0xBD => self.lda(ram, &AddressingMode::AbsoluteX),
             0xBE => self.ldx(ram, &AddressingMode::AbsoluteY),
