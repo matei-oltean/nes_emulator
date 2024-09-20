@@ -335,6 +335,10 @@ impl CPU {
                 self.ldy(ram, &AddressingMode::ZeroPageX);
                 4
             }
+            0xCA => {
+                self.dex();
+                2
+            }
             0xD0 => self.bne(ram),
             0xD8 => {
                 println!("CLD");
