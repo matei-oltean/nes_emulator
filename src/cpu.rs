@@ -7,10 +7,10 @@ enum AddressingMode {
     AbsoluteX,
     AbsoluteY,
     Immediate,
-    Implied,
+    // Implied is a placeholder for instructions that don't require an operand,
     Indirect,
-    IndexedIndirect,
-    IndirectIndexed,
+    IndexedIndirect, // (Indirect, X)
+    IndirectIndexed, // (Indirect), Y
     Relative,
     ZeroPage,
     ZeroPageX,
@@ -65,7 +65,7 @@ impl CPU {
             AddressingMode::AbsoluteX => println!("{} ${:04X},X", op_name, value),
             AddressingMode::AbsoluteY => println!("{} ${:04X},Y", op_name, value),
             AddressingMode::Immediate => println!("{} #${:02X}", op_name, value),
-            AddressingMode::Implied => println!("{}", op_name),
+            // AddressingMode::Implied => println!("{}", op_name),
             AddressingMode::Indirect => println!("{} (${:02X})", op_name, value),
             AddressingMode::IndexedIndirect => println!("{} (${:02X},X)", op_name, value),
             AddressingMode::IndirectIndexed => println!("{} (${:02X}),Y", op_name, value),
@@ -105,12 +105,20 @@ impl CPU {
         addr1 & 0xFF00 != addr2 & 0xFF00
     }
 
+    fn bcc(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, !self.p.get_bit(StatusFlag::Carry as u8), "BCC")
+    }
+
+    fn bcs(&mut self, ram: &RAM) -> u64 {
+        self.branch_if_comparison(ram, self.p.get_bit(StatusFlag::Carry as u8), "BCS")
+    }
+
     fn beq(&mut self, ram: &RAM) -> u64 {
         self.branch_if_comparison(ram, self.p.get_bit(StatusFlag::Zero as u8), "BEQ")
     }
 
     fn bit(&mut self, ram: &RAM, mode: &AddressingMode) {
-        let value: u8 = self.get_value(ram, mode) as u8;
+        let value = self.get_value(ram, mode).0 as u8;
         let result: u8 = self.a & value;
         self.p.set_bit(StatusFlag::Zero as u8, result == 0);
         self.p
@@ -133,14 +141,13 @@ impl CPU {
 
     fn branch_if_comparison(&mut self, ram: &RAM, condition: bool, op_name: &str) -> u64 {
         let mut cycles: u64 = 2;
-        let new_location: u16 = self.get_value(ram, &AddressingMode::Relative);
+        let (new_location, page_boundary_crossed) = self.get_value(ram, &AddressingMode::Relative);
         println!(
             "{} ${:02X}",
             op_name,
             (new_location as i32 - self.pc as i32) as u8
         );
         if condition {
-            let page_boundary_crossed: bool = CPU::is_crossing_page_boundary(self.pc, new_location);
             self.pc = new_location;
             cycles += if page_boundary_crossed { 2 } else { 1 };
         }
@@ -172,28 +179,27 @@ impl CPU {
     }
 
     fn jmp(&mut self, ram: &RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(ram, mode);
+        let (addr, _) = self.get_value(ram, mode);
         Self::print_instruction("JMP", mode, addr);
         self.pc = addr;
     }
 
-    fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let value: u8 = self.get_value(ram, mode) as u8;
+    fn lda(&mut self, ram: &mut RAM, mode: &AddressingMode) -> u64 {
+        let (value, cycles) = self.load_into_register(ram, mode, Register::A);
         Self::print_instruction("LDA", mode, value as u16);
-        self.p.set_bit(StatusFlag::Zero as u8, value == 0);
-        self.p
-            .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
-        self.a = value;
+        cycles
     }
 
-    fn ldx(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let loaded_value = self.load_into_register(ram, mode, Register::X);
-        Self::print_instruction("LDX", mode, loaded_value as u16);
+    fn ldx(&mut self, ram: &mut RAM, mode: &AddressingMode) -> u64 {
+        let (value, cycles) = self.load_into_register(ram, mode, Register::X);
+        Self::print_instruction("LDX", mode, value as u16);
+        cycles
     }
 
-    fn ldy(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let loaded_value = self.load_into_register(ram, mode, Register::Y);
-        Self::print_instruction("LDY", mode, loaded_value as u16);
+    fn ldy(&mut self, ram: &mut RAM, mode: &AddressingMode) -> u64 {
+        let (value, cycles) = self.load_into_register(ram, mode, Register::Y);
+        Self::print_instruction("LDY", mode, value as u16);
+        cycles
     }
 
     fn load_into_register(
@@ -201,8 +207,21 @@ impl CPU {
         ram: &mut RAM,
         mode: &AddressingMode,
         register: Register,
-    ) -> u8 {
-        let value: u8 = self.get_value(ram, mode) as u8;
+    ) -> (u8, u64) {
+        let result = self.get_value(ram, mode);
+        let value = result.0 as u8;
+        let cycles = match mode {
+            AddressingMode::Immediate => 2,
+            AddressingMode::ZeroPage => 3,
+            AddressingMode::ZeroPageX
+            | AddressingMode::ZeroPageY
+            | AddressingMode::Absolute
+            | AddressingMode::AbsoluteX
+            | AddressingMode::AbsoluteY => 4 + result.1 as u64,
+            AddressingMode::IndexedIndirect => 6,
+            AddressingMode::IndirectIndexed => 5 + result.1 as u64,
+            _ => 0,
+        };
         self.p.set_bit(StatusFlag::Zero as u8, value == 0);
         self.p
             .set_bit(StatusFlag::Negative as u8, value & (1 << 7) != 0);
@@ -211,86 +230,105 @@ impl CPU {
             Register::X => self.x = value,
             Register::Y => self.y = value,
         }
-        value
+        (value, cycles)
     }
 
     fn sta(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(ram, mode);
+        let addr: u16 = self.get_value(ram, mode).0;
         Self::print_instruction("STA", mode, addr);
         self.write(ram, addr, self.a);
     }
 
     fn stx(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(ram, mode);
+        let addr: u16 = self.get_value(ram, mode).0;
         Self::print_instruction("STX", mode, addr);
         self.write(ram, addr, self.x);
     }
 
     fn sty(&mut self, ram: &mut RAM, mode: &AddressingMode) {
-        let addr: u16 = self.get_value(ram, mode);
+        let addr: u16 = self.get_value(ram, mode).0;
         Self::print_instruction("STY", mode, addr);
         self.write(ram, addr, self.y);
     }
 
-    fn txs(&mut self) -> u64 {
-        println!("TXS");
-        self.s = self.x;
+    fn transfer_accumulator_to(name: &str, p: &mut Bitfield, src: u8, dest: &mut u8) -> u64 {
+        println!("{}", name);
+        *dest = src;
+        p.set_bit(StatusFlag::Zero as u8, src == 0);
+        p.set_bit(StatusFlag::Negative as u8, src & (1 << 7) != 0);
         2
     }
 
-    fn get_value(&mut self, ram: &RAM, mode: &AddressingMode) -> u16 {
+    fn get_value(&mut self, ram: &RAM, mode: &AddressingMode) -> (u16, bool) {
         match mode {
-            AddressingMode::Accumulator => self.a as u16,
+            AddressingMode::Accumulator => (self.a as u16, false),
             AddressingMode::Absolute => {
                 let addr: u16 = self.read_next_word_number(ram);
-                self.read(ram, addr) as u16
+                (self.read(ram, addr) as u16, false)
             }
             AddressingMode::AbsoluteX => {
                 let addr: u16 = self.read_next_word_number(ram)
                     + self.x as u16
                     + self.p.get_bit(StatusFlag::Carry as u8) as u16;
-                self.read(ram, addr) as u16
+                (
+                    self.read(ram, addr) as u16,
+                    CPU::is_crossing_page_boundary(addr, addr - self.x as u16),
+                )
             }
             AddressingMode::AbsoluteY => {
                 let addr: u16 = self.read_next_word_number(ram)
                     + self.y as u16
                     + self.p.get_bit(StatusFlag::Carry as u8) as u16;
-                self.read(ram, addr) as u16
+                (
+                    self.read(ram, addr) as u16,
+                    CPU::is_crossing_page_boundary(addr, addr - self.y as u16),
+                )
             }
             AddressingMode::Immediate => {
                 let value: u8 = self.read_next_byte(ram);
-                value as u16
+                (value as u16, false)
             }
-            AddressingMode::Implied => 0,
+            // AddressingMode::Implied => (0, false),
             AddressingMode::Indirect => {
                 let addr: u16 = self.read_next_word_number(ram);
-                self.read_word_number(ram, addr)
+                (self.read_word_number(ram, addr), false)
             }
             AddressingMode::IndexedIndirect => {
                 let addr: u8 = self.read_next_byte(ram);
-                self.read_word_number(ram, (addr as u16 + self.x as u16) & 0xFF)
+                (
+                    self.read_word_number(ram, (addr as u16 + self.x as u16) & 0xFF),
+                    false,
+                )
             }
             AddressingMode::IndirectIndexed => {
                 let addr: u8 = self.read_next_byte(ram);
                 let indirect_addr: u16 = self.read_word_number(ram, addr as u16);
-                self.read(ram, indirect_addr + self.y as u16) as u16
+                let new_location: u16 = indirect_addr + self.y as u16;
+                (
+                    self.read(ram, new_location) as u16,
+                    CPU::is_crossing_page_boundary(indirect_addr, new_location),
+                )
             }
             AddressingMode::Relative => {
                 let offset: i8 = self.read_next_byte(ram) as i8;
                 let pc: i32 = self.pc as i32;
-                (pc + offset as i32) as u16
+                let new_location: u16 = (pc + offset as i32) as u16;
+                (
+                    new_location,
+                    CPU::is_crossing_page_boundary(self.pc, new_location),
+                )
             }
             AddressingMode::ZeroPage => {
                 let addr: u8 = self.read_next_byte(ram);
-                self.read(ram, addr as u16) as u16
+                (self.read(ram, addr as u16) as u16, false)
             }
             AddressingMode::ZeroPageX => {
                 let addr: u8 = self.read_next_byte(ram);
-                self.read(ram, (addr + self.x) as u16) as u16
+                (self.read(ram, (addr + self.x) as u16) as u16, false)
             }
             AddressingMode::ZeroPageY => {
                 let addr: u8 = self.read_next_byte(ram);
-                self.read(ram, (addr + self.y) as u16) as u16
+                (self.read(ram, (addr + self.y) as u16) as u16, false)
             }
         }
     }
@@ -342,6 +380,7 @@ impl CPU {
                 3
             }
             0x88 => self.dey(),
+            0x8A => Self::transfer_accumulator_to("TXA", &mut self.p, self.a, &mut self.x),
             0x8C => {
                 self.sty(ram, &AddressingMode::Absolute);
                 4
@@ -354,6 +393,7 @@ impl CPU {
                 self.stx(ram, &AddressingMode::Absolute);
                 4
             }
+            0x90 => self.bcc(ram),
             0x94 => {
                 self.sty(ram, &AddressingMode::ZeroPageX);
                 4
@@ -370,67 +410,38 @@ impl CPU {
                 self.stx(ram, &AddressingMode::ZeroPageY);
                 4
             }
+            0x98 => Self::transfer_accumulator_to("TYA", &mut self.p, self.a, &mut self.y),
             0x99 => {
                 self.sta(ram, &AddressingMode::AbsoluteY);
                 5
             }
-            0x9A => self.txs(),
+            0x9A => Self::transfer_accumulator_to("TXS", &mut self.p, self.a, &mut self.s),
             0x9D => {
                 self.sta(ram, &AddressingMode::AbsoluteX);
                 5
             }
-            0xA0 => {
-                self.ldy(ram, &AddressingMode::Immediate);
-                2
-            }
-            0xA1 => {
-                self.lda(ram, &AddressingMode::IndexedIndirect);
-                6
-            }
-            0xA2 => {
-                self.ldx(ram, &AddressingMode::Immediate);
-                2
-            }
-            0xA4 => {
-                self.ldy(ram, &AddressingMode::ZeroPage);
-                3
-            }
-            0xA5 => {
-                self.lda(ram, &AddressingMode::ZeroPage);
-                3
-            }
-            0xA6 => {
-                self.ldx(ram, &AddressingMode::ZeroPage);
-                3
-            }
-            0xA9 => {
-                self.lda(ram, &AddressingMode::Immediate);
-                2
-            }
-            0xAC => {
-                self.ldy(ram, &AddressingMode::Absolute);
-                4
-            }
-            0xAD => {
-                self.lda(ram, &AddressingMode::Absolute);
-                4
-            }
-            0xAE => {
-                self.ldx(ram, &AddressingMode::Absolute);
-                4
-            }
-            0xB4 => {
-                self.ldy(ram, &AddressingMode::ZeroPageX);
-                4
-            }
-            0xB5 => {
-                self.lda(ram, &AddressingMode::ZeroPageX);
-                4
-            }
-            0xB6 => {
-                self.ldx(ram, &AddressingMode::ZeroPageY);
-                4
-            }
+            0xA0 => self.ldy(ram, &AddressingMode::Immediate),
+            0xA1 => self.lda(ram, &AddressingMode::IndexedIndirect),
+            0xA2 => self.ldx(ram, &AddressingMode::Immediate),
+            0xA4 => self.ldy(ram, &AddressingMode::ZeroPage),
+            0xA5 => self.lda(ram, &AddressingMode::ZeroPage),
+            0xA6 => self.ldx(ram, &AddressingMode::ZeroPage),
+            0xA8 => Self::transfer_accumulator_to("TAY", &mut self.p, self.a, &mut self.y),
+            0xA9 => self.lda(ram, &AddressingMode::Immediate),
+            0xAA => Self::transfer_accumulator_to("TAX", &mut self.p, self.a, &mut self.x),
+            0xAC => self.ldy(ram, &AddressingMode::Absolute),
+            0xAD => self.lda(ram, &AddressingMode::Absolute),
+            0xAE => self.ldx(ram, &AddressingMode::Absolute),
+            0xB0 => self.bcs(ram),
+            0xB1 => self.lda(ram, &AddressingMode::IndirectIndexed),
+            0xB4 => self.ldy(ram, &AddressingMode::ZeroPageX),
+            0xB5 => self.lda(ram, &AddressingMode::ZeroPageX),
+            0xB9 => self.lda(ram, &AddressingMode::AbsoluteY),
+            0xBA => Self::transfer_accumulator_to("TSX", &mut self.p, self.a, &mut self.x),
+            0xBC => self.ldy(ram, &AddressingMode::AbsoluteX),
+            0xBD => self.lda(ram, &AddressingMode::AbsoluteX),
+            0xBE => self.ldx(ram, &AddressingMode::AbsoluteY),
+            0xB6 => self.ldx(ram, &AddressingMode::ZeroPageY),
             0xCA => self.dex(),
             0xD0 => self.bne(ram),
             0xD8 => {
