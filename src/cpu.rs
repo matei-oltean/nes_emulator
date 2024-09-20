@@ -403,6 +403,10 @@ impl CPU {
                 self.p.set_bit(StatusFlag::DecimalMode as u8, false);
                 2
             }
+            0xEA => {
+                println!("NOP");
+                2
+            }
             0xF0 => self.beq(ram),
             _ => {
                 eprintln!("Unknown opcode: {:#X}", opcode);
